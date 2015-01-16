@@ -1,33 +1,65 @@
 # podiobooks.py
 from argparse import ArgumentParser
-from bs4 import BeautifulSoup
+from HTMLParser import HTMLParser
 from urllib2 import urlopen
 import os
 
-class podiobooks(object):
+class PodioBooks(HTMLParser):
+    def __init__(self):
+        self.result = []
+        self.__process__ = False
+        self.__link__ = ""
+        HTMLParser.__init__(self)
+        
+    def handle_starttag(self, tag, attrs):
+        if tag == 'a':
+            href = "";
+            self.__process__ = False
+            for attr in attrs:
+                if attr[0] == 'href':
+                    href = attr[1]
+                if attr[0] == 'class' and attr[1] == 'episode-audio-link':
+                    self.__process__ = True
+            if self.__process__:
+                self.__link__ = href;
+
+    def handle_data(self, data):
+        if self.__process__:
+            self.__process__ = False
+            self.result.append({'name':data, 'link':self.__link__})
+            
+class AudioBookDownloader(object):
     def __init__(self, **kwargs):
         self.book = kwargs.get('book', None)
         self.book_title = '-'.join(self.book.lower().split(' '))
+        
         start = kwargs.get('start', None)
         if start:
             self.start = start -1
+            
         self.end = kwargs.get('end', None)
+        
         destination = kwargs.get('destination', None)
         if destination:
             self.destination = destination.replace('\\', '/')
         else:
             self.destination = destination = "."
+        self.rename = kwargs.get('rename', False)
         
     def __get_page__(self, book_url):
-        return BeautifulSoup(urlopen(book_url))
+        return PodioBooks().feed(urlopen(book_url))
         
     def __get_episode_links__(self, page, start, end):
-        episode_list = page.findAll('a', {'class' : 'episode-audio-link'})
-        return [episode.get('href') for episode in episode_list][start:end]
+        return page.result[start:end]
 
-    def __download__(self, destination, episode_link):
+    def __download__(self, destination, episode):
         dir_name = episode_link.split('/')[-2]
-        file_name = episode_link.split('/')[-1]
+        episode_link = episode.link
+        
+        if self.rename:
+            file_name = episode.name
+        else:
+            file_name = episode_link.split('/')[-1]
         
         if not os.path.exists(destination + '/' + dir_name):
             os.makedirs(destination + '/' + dir_name)
@@ -66,9 +98,10 @@ parser = ArgumentParser()
 parser.add_argument("--book", help="Book Name, use \"\" if name has spaces", required=True)
 parser.add_argument("--start", help="from which file to download", type=int)
 parser.add_argument("--end", help="up to which file to download", type=int)
+parser.add_argument("--rename", help="save file with name as chapter name", action="store_true")
 parser.add_argument("--output", help="Where the downloaded episode needs to be stored.")
 args = parser.parse_args()
 
-podiobooks.host = 'http://podiobooks.com/title/'
-pb = podiobooks(book=args.book, start=args.start, end=args.end, destination=args.output)
-pb.download()
+AudioBookDownloader.host = 'http://podiobooks.com/title/'
+abd = AudioBookDownloader(book=args.book, start=args.start, end=args.end, destination=args.output, rename=args.rename)
+abd.download()
